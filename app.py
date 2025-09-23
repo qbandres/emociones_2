@@ -6,6 +6,7 @@ import threading
 import json
 import re
 import unicodedata   # 👈 para normalizar en Python
+import platform      # 👈 para detectar SO (Mac / Windows)
 from flask import Flask, render_template, request, jsonify, send_file
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -17,13 +18,35 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 app = Flask(__name__, static_folder="static", template_folder="templates")
 
 # === Serial con ESP32 ===
-ser = serial.Serial("/dev/cu.usbserial-0001", 115200, timeout=1)
+# 🔹 Ajusta aquí según tu sistema operativo:
+#   - En Mac/Linux: "/dev/cu.usbserial-0001" (o similar)
+#   - En Windows: "COM3" (o el COM que veas en el Administrador de dispositivos)
+PUERTO_MAC = "/dev/cu.usbserial-0001"   # 👈 cambia si tu puerto en Mac es distinto
+PUERTO_WINDOWS = "COM3"                 # 👈 cambia al COM correcto en Windows
+BAUDRATE = 115200
+
+# Detectar sistema operativo y abrir puerto
+so = platform.system()
+try:
+    if so == "Darwin":   # macOS
+        ser = serial.Serial(PUERTO_MAC, BAUDRATE, timeout=1)
+    elif so == "Windows":
+        ser = serial.Serial(PUERTO_WINDOWS, BAUDRATE, timeout=1)
+    else:  # Linux u otros
+        ser = serial.Serial(PUERTO_MAC, BAUDRATE, timeout=1)
+
+    print(f"✅ ESP32 conectado en {ser.port}")
+
+except Exception as e:
+    ser = None
+    print("⚠️ No se pudo abrir el puerto serie:", e)
+
 eventos = []
 event_id = 0
 
 def leer_serial():
     global event_id
-    while True:
+    while ser:
         try:
             line = ser.readline().decode().strip()
             if line:
@@ -38,8 +61,9 @@ def leer_serial():
         except Exception as e:
             print("Error leyendo serial:", e)
 
-hilo = threading.Thread(target=leer_serial, daemon=True)
-hilo.start()
+if ser:
+    hilo = threading.Thread(target=leer_serial, daemon=True)
+    hilo.start()
 
 # === Emociones permitidas ===
 TARGET_EMOTIONS = ["Furia", "Desagrado", "Temor", "Alegria", "Tristeza"]
@@ -48,16 +72,12 @@ TARGET_EMOTIONS = ["Furia", "Desagrado", "Temor", "Alegria", "Tristeza"]
 def normalizar_emocion(texto):
     if not texto:
         return ""
-    # Quitar acentos con unicodedata
     texto = unicodedata.normalize("NFD", texto)
     texto = texto.encode("ascii", "ignore").decode("utf-8")
-    # Pasar a minúsculas y quitar puntuación
     texto = re.sub(r"[^\w\s]", "", texto).strip().lower()
-    # Capitalizar
     return texto.capitalize()
 
 # === Rutas Flask ===
-
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -139,5 +159,8 @@ def speak():
 
 # === Run ===
 if __name__ == "__main__":
-    print("✅ Conectado a", ser.port)
+    if ser:
+        print("✅ Conectado a", ser.port)
+    else:
+        print("⚠️ Ejecutando sin ESP32 (modo pruebas)")
     app.run(host="0.0.0.0", port=8080)
