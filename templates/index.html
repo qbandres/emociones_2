@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Aula Roja - Juego de Emociones</title>
+  <link rel="icon" href="data:,"> <!-- 🔹 Soluciona favicon.ico 404 -->
+  <style>
+    body {
+      font-family: "Comic Sans MS", cursive;
+      background: #fff5f5;
+      margin: 0;
+      padding: 0;
+      text-align: center;
+      color: #333;
+    }
+    header {
+      background: #e53935;
+      color: white;
+      padding: 15px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    }
+    header img { height: 40px; }
+    header h1 { margin: 0; font-size: 1.5em; }
+    .luces {
+      display: flex;
+      justify-content: center;
+      margin: 20px 0;
+      gap: 15px;
+    }
+    .luz {
+      width: 60px;
+      height: 60px;
+      border-radius: 50%;
+      opacity: 0.3;
+      transition: opacity 0.2s;
+    }
+    .activo {
+      opacity: 1;
+      box-shadow: 0 0 15px rgba(0,0,0,0.5);
+    }
+    video, canvas, #captura {
+      border: 2px solid #ccc;
+      border-radius: 10px;
+      margin: 10px;
+      max-width: 90%;
+    }
+    #mensaje {
+      font-size: 1.3em;
+      font-weight: bold;
+      margin-top: 15px;
+      color: #e53935;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <img src="{{ url_for('static', filename='logo.png') }}" alt="Logo">
+    <h1>🎈 Aula Roja - Juego de Emociones 🎈</h1>
+  </header>
+
+  <div class="luces">
+    <div id="luz-furia" class="luz" style="background:red"></div>
+    <div id="luz-desagrado" class="luz" style="background:green"></div>
+    <div id="luz-temor" class="luz" style="background:purple"></div>
+    <div id="luz-alegria" class="luz" style="background:yellow"></div>
+    <div id="luz-tristeza" class="luz" style="background:blue"></div>
+  </div>
+
+  <video id="video" width="320" height="240" autoplay></video>
+  <canvas id="canvas" width="320" height="240" style="display:none;"></canvas>
+  <img id="captura" width="320" height="240" alt="Última captura">
+
+  <div id="mensaje">✨ Presiona el botón físico de Inicio en el juego</div>
+
+  <script>
+    let emocionObjetivo = null;
+    let ultimoId = null;
+    let capturaRealizada = false;
+
+    const luces = {
+      "Furia": document.getElementById("luz-furia"),
+      "Desagrado": document.getElementById("luz-desagrado"),
+      "Temor": document.getElementById("luz-temor"),
+      "Alegria": document.getElementById("luz-alegria"),
+      "Tristeza": document.getElementById("luz-tristeza"),
+    };
+
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const context = canvas.getContext('2d');
+    const capturaImg = document.getElementById('captura');
+    const mensajeDiv = document.getElementById('mensaje');
+
+    // 🔊 Reproducir voz
+    function decir(mensaje) {
+      fetch("/speak", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: mensaje })
+      })
+      .then(res => res.blob())
+      .then(blob => {
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        audio.play();
+      })
+      .catch(err => console.error("Error al reproducir voz:", err));
+    }
+
+    // ✨ Normalizar texto (quita acentos, pasa a minúsculas y borra signos)
+    function normalizarTexto(texto) {
+      return texto
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "") // elimina tildes
+        .replace(/[^\w\s]/g, "") // elimina puntuación como .,!? etc
+        .trim();
+    }
+
+    // ✨ Capitalizar primera letra
+    function capitalizar(texto) {
+      if (!texto) return "";
+      return texto.charAt(0).toUpperCase() + texto.slice(1);
+    }
+
+    // Activar cámara
+    navigator.mediaDevices.getUserMedia({ video: true })
+      .then(stream => { video.srcObject = stream; })
+      .catch(err => console.error("Error cámara:", err));
+
+    // === Consultar ESP32 vía Flask ===
+    function actualizarEstado() {
+      fetch("/estado")
+        .then(res => res.json())
+        .then(data => {
+          if (!data.last_event) return;
+          const ev = data.last_event;
+
+          if (ev.id && ev.id !== ultimoId) {
+            ultimoId = ev.id;
+            console.log("Nuevo evento:", ev);
+
+            if (ev.event === "winner") {
+              Object.values(luces).forEach(l => l.classList.remove("activo"));
+              emocionObjetivo = ev.emotion;
+              capturaRealizada = false;
+              if (luces[emocionObjetivo]) {
+                luces[emocionObjetivo].classList.add("activo");
+                const frase = "Imita la emoción " + emocionObjetivo;
+                mensajeDiv.textContent = "🌟 " + frase;
+                decir(frase);
+              }
+            }
+
+            if (ev.event === "capture" && emocionObjetivo && !capturaRealizada) {
+              capturaRealizada = true;
+              context.drawImage(video, 0, 0, canvas.width, canvas.height);
+              const imageData = canvas.toDataURL('image/jpeg');
+              capturaImg.src = imageData;
+
+              fetch("/predict", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ image: imageData })
+              })
+              .then(res => res.json())
+              .then(data => {
+                if (data.emotion) {
+                  const detectadaCruda = data.emotion;
+                  const detectada = normalizarTexto(detectadaCruda);
+                  const objetivo = normalizarTexto(emocionObjetivo);
+
+                  // 🟢 LOGS de depuración
+                  console.log("👉 Objetivo (crudo):", emocionObjetivo, " | Normalizado:", objetivo);
+                  console.log("👉 Detectada (crudo):", detectadaCruda, " | Normalizado:", detectada);
+
+                  if (detectada === objetivo) {
+                    const frase = "¡Felicitaciones, lo lograste!";
+                    mensajeDiv.textContent = "🎉 " + frase;
+                    decir(frase);
+                  } else {
+                    const frase = `Tu emoción fue ${capitalizar(detectada)}, estuviste cerca.`; 
+                    mensajeDiv.textContent = "😅 " + frase;
+                    decir(frase);
+                  }
+                } else {
+                  mensajeDiv.textContent = "⚠️ Error: " + data.error;
+                  decir("Hubo un error en la predicción");
+                }
+              });
+            }
+          }
+        })
+        .catch(err => console.error("Error consultando /estado:", err));
+    }
+
+    setInterval(actualizarEstado, 1000);
+  </script>
+</body>
+</html>

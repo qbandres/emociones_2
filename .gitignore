@@ -1,0 +1,48 @@
+# =========================================
+# Archivos de entorno
+.env
+*.env
+
+# =========================================
+# Entorno virtual
+venv/
+.env/
+ENV/
+env/
+.venv/
+
+# =========================================
+# Archivos de sistema
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.sqlite3
+.DS_Store
+Thumbs.db
+
+# =========================================
+# Logs
+*.log
+
+# =========================================
+# Configuración de IDEs/Editores
+.vscode/
+.idea/
+*.swp
+
+# =========================================
+# Archivos de compilación/binaries
+*.so
+*.dll
+*.dylib
+*.exe
+*.out
+*.class
+
+# =========================================
+# Archivos temporales
+*.tmp
+*.bak
+*.cache
+*.DS_Store
